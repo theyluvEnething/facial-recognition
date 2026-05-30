@@ -2,11 +2,11 @@
 name = "facial-recognition"
 version = "0.1.0"
 description = "IResNet-100 + AdaFace face embedding model (Leonardo / CINECA)"
-channels = ["conda-forge"]
+channels = ["conda-forge", "pytorch"]
 platforms = ["linux-64"]
 
 # =============================================================================
-# Base dependencies — login node (CPU-only, always installs without CUDA)
+# Base dependencies — login node (CPU-only)
 # =============================================================================
 [dependencies]
 python = "3.12.*"
@@ -23,16 +23,13 @@ huggingface_hub = ">=0.20"
 # =============================================================================
 # GPU feature — compute node (CUDA-accelerated PyTorch)
 # =============================================================================
-[feature.gpu]
-channels = ["pytorch"]
-
 [feature.gpu.system-requirements]
-cuda = "12"
+cuda = "12.4"
 
 [feature.gpu.dependencies]
-pytorch = ">=2.5"
-torchvision = "*"
-pytorch-cuda = ">=2.5"
+pytorch = { version = ">=2.5,<3", channel = "pytorch" }
+torchvision = { version = "*", channel = "pytorch" }
+pytorch-cuda = { version = "==12.4", channel = "pytorch" }
 
 # =============================================================================
 # Environments
