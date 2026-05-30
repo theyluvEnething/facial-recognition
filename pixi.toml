@@ -23,13 +23,16 @@ huggingface_hub = ">=0.20"
 # =============================================================================
 # GPU feature — compute node (CUDA-accelerated PyTorch)
 # =============================================================================
+[feature.gpu]
+channels = ["pytorch"]
+
 [feature.gpu.system-requirements]
 cuda = "12"
 
 [feature.gpu.dependencies]
-pytorch = { version = ">=2.5", channel = "pytorch" }
-torchvision = { version = "*", channel = "pytorch" }
-pytorch-cuda = { version = ">=2.5", channel = "pytorch" }
+pytorch = ">=2.5"
+torchvision = "*"
+pytorch-cuda = ">=2.5"
 
 # =============================================================================
 # Environments
