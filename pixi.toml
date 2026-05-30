@@ -1,21 +1,28 @@
+# =============================================================================
+# Facial Recognition — pixi Project Manifest
+# IResNet-100 + AdaFace | Leonardo Supercomputer
+# =============================================================================
+# Usage:
+#   pixi install                 # Login node — CPU-only deps
+#   CONDA_OVERRIDE_CUDA=12.0 pixi install -e gpu  # Login node — GPU deps (mocked)
+#   pixi run -e gpu train        # Compute node — 4-GPU training
+#   pixi run export              # ONNX export (CPU is fine)
+#   pixi run infer               # Inference
+# =============================================================================
+
 [workspace]
 name = "facial-recognition"
 version = "0.1.0"
 description = "IResNet-100 + AdaFace face embedding model (Leonardo / CINECA)"
-channels = ["conda-forge"]
+channels = ["conda-forge", "pytorch"]
 platforms = ["linux-64"]
 
-# Use CONDA_OVERRIDE_CUDA=12.0 when running `pixi install` on the login node.
-# The login node has no GPU so the __cuda virtual package is absent.
-# This override lets pixi solve for CUDA-enabled PyTorch builds anyway.
-# The compute nodes have real CUDA drivers and don't need the override.
-[system-requirements]
-cuda = "12"
-
+# =============================================================================
+# Base dependencies (login node — CPU only, always installable)
+# =============================================================================
 [dependencies]
-python = "3.11.*"
-pytorch-gpu = ">=2.3,<2.8"
-torchvision = "*"
+python = "3.12.*"
+pip = "*"
 numpy = ">=1.24"
 opencv = ">=4.8"
 onnx = "*"
@@ -24,17 +31,36 @@ scipy = "*"
 tensorboard = "*"
 tqdm = "*"
 
-[tasks]
-# Single-node, 4-GPU training. --standalone makes torchrun pick a free rendezvous
-# port itself (do NOT also set MASTER_ADDR/MASTER_PORT).
-train = "torchrun --standalone --nnodes=1 --nproc_per_node=4 src/train_leonardo.py"
-export = "python src/export.py"
-infer = "python src/inference.py"
+# =============================================================================
+# GPU feature (compute nodes — CUDA-accelerated PyTorch)
+# =============================================================================
+[feature.gpu.system-requirements]
+cuda = "12"
 
+[feature.gpu.dependencies]
+pytorch = { version = ">=2.5,<3", channel = "pytorch" }
+torchvision = { version = "*", channel = "pytorch" }
+pytorch-cuda = { version = ">=2.5", channel = "pytorch" }
+
+# =============================================================================
+# Dev feature
+# =============================================================================
 [feature.dev.dependencies]
 ruff = "*"
 ipython = "*"
 pytest = "*"
 
+# =============================================================================
+# Environments
+# =============================================================================
 [environments]
-default = ["dev"]
+default = ["dev"]                             # Login node / local dev
+gpu = ["dev", "gpu"]                          # Compute node — 4× A100
+
+# =============================================================================
+# Tasks
+# =============================================================================
+[tasks]
+train = { cmd = "torchrun --standalone --nnodes=1 --nproc_per_node=4 src/train_leonardo.py" }
+export = "python src/export.py"
+infer = "python src/inference.py"

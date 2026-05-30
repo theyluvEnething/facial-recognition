@@ -12,10 +12,10 @@
 #SBATCH --error=%x-%j.err
 
 # ===========================================================================
-# Train IResNet-100 + AdaFace on Leonardo (1 node, 4x A100, NVLink).
+# Train IResNet-100 + AdaFace on Leonardo (1 node, 4× A100, NVLink).
 #
 # One SLURM task owns all 4 GPUs; torchrun spawns 4 worker processes (one per
-# GPU) inside it. The 24h wall-clock limit means a single run may not finish --
+# GPU) inside it. The 24h wall-clock limit means a single run may not finish —
 # the training script auto-resumes from <output-dir>/latest.pth, so simply
 # re-submitting this script continues where the previous job stopped.
 #
@@ -24,52 +24,54 @@
 
 set -euo pipefail
 
-# --- clean the environment so nothing from the login shell leaks in ---------
-module purge 2>/dev/null || true
+# --- clean environment so nothing from the login shell leaks in -----------
 unset PYTHONPATH LD_PRELOAD
-# Let torchrun --standalone set these itself; stale values break rendezvous.
 unset RANK WORLD_SIZE LOCAL_RANK MASTER_ADDR MASTER_PORT
 unset CUDA_VISIBLE_DEVICES NCCL_SOCKET_IFNAME
 
-# --- paths (everything lives on $SCRATCH; $HOME only holds the pixi binary) --
-export PIXI_CACHE_DIR="${CINECA_SCRATCH:-$SCRATCH}/.pixi-cache"
-PROJECT_DIR="$SCRATCH/facial-recognition"
-DATA_ROOT="$SCRATCH/datasets/glint360k"
-OUTPUT_DIR="$SCRATCH/facial-recognition/checkpoints/run_${SLURM_JOB_ID}"
-mkdir -p "$OUTPUT_DIR"
+# --- paths -----------------------------------------------------------------
+export PIXI_CACHE_DIR="$CINECA_SCRATCH/.pixi-cache"
+mkdir -p "$PIXI_CACHE_DIR"
 
-# Locate pixi: prefer $PIXI_BIN, then the standard install path, then PATH.
-PIXI_BIN="${PIXI_BIN:-$HOME/.pixi/bin/pixi}"
-if [[ ! -x "$PIXI_BIN" ]]; then
-    PIXI_BIN="$(command -v pixi)"
-fi
+PROJECT_DIR="$CINECA_SCRATCH/facial-recognition"
+DATA_ROOT="$CINECA_SCRATCH/datasets/glint360k"
+OUTPUT_DIR="$CINECA_SCRATCH/facial-recognition/checkpoints/run_${SLURM_JOB_ID}"
+mkdir -p "$OUTPUT_DIR"
 
 cd "$PROJECT_DIR"
 
+# --- proxy for low-bandwidth traffic (compute nodes have no internet) -------
+export HTTP_PROXY="http://proxyuser:5dd1d2bd00@10.99.0.1:38425"
+export HTTPS_PROXY="http://proxyuser:5dd1d2bd00@10.99.0.1:38425"
+export http_proxy="$HTTP_PROXY"
+export https_proxy="$HTTPS_PROXY"
+
 # --- runtime tuning ---------------------------------------------------------
-# Split the 32 CPUs evenly across the 4 GPU processes for math threads.
 export OMP_NUM_THREADS=$(( SLURM_CPUS_PER_TASK / 4 ))
-# Surface NCCL collective errors instead of hanging (new + legacy var names).
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 export NCCL_ASYNC_ERROR_HANDLING=1
-# Compute nodes have no internet; make sure no library tries to phone home.
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 
 echo "================================================================"
-echo "host        : $(hostname)"
-echo "job id      : ${SLURM_JOB_ID}"
-echo "data root   : ${DATA_ROOT}"
-echo "output dir  : ${OUTPUT_DIR}"
-echo "pixi        : ${PIXI_BIN}"
+echo "Job ID      : ${SLURM_JOB_ID}"
+echo "Host        : $(hostname)"
+echo "Node list   : ${SLURM_JOB_NODELIST}"
+echo "Data root   : ${DATA_ROOT}"
+echo "Output dir  : ${OUTPUT_DIR}"
 echo "OMP threads : ${OMP_NUM_THREADS}"
-nvidia-smi || true
+echo "================================================================"
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
 echo "================================================================"
 
-# --- launch -----------------------------------------------------------------
-"$PIXI_BIN" run --manifest-path "$PROJECT_DIR/pixi.toml" -- \
-    torchrun --standalone --nnodes=1 --nproc_per_node=4 \
-    src/train_leonardo.py \
+# --- install GPU environment on the compute node ----------------------------
+echo "[pixi] Installing GPU environment..."
+CONDA_OVERRIDE_CUDA=12.0 pixi install -e gpu
+echo "[pixi] Done."
+
+# --- launch training ---------------------------------------------------------
+echo "[train] Starting..."
+pixi run -e gpu train \
     --data-root "$DATA_ROOT" \
     --output-dir "$OUTPUT_DIR" \
     --batch-size 128 \
@@ -78,3 +80,12 @@ echo "================================================================"
     --warmup-epochs 1 \
     --amp-dtype bf16 \
     --num-workers -1
+
+EXIT_CODE=$?
+
+echo ""
+echo "================================================================"
+echo "Job finished with exit code: $EXIT_CODE"
+echo "Checkpoints saved to: $OUTPUT_DIR"
+echo "================================================================"
+exit $EXIT_CODE
