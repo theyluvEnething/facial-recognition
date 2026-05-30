@@ -53,8 +53,11 @@ cv2.setNumThreads(0)
 __all__ = [
     "RecordIOReader",
     "MXFaceDataset",
+    "WDSFaceDataset",
     "build_dataloader",
+    "build_wds_dataloader",
     "worker_init_fn",
+    "preprocess_wds_sample",
 ]
 
 # ---------------------------------------------------------------------------
@@ -374,21 +377,202 @@ def build_dataloader(
 
 
 # ---------------------------------------------------------------------------
+# WebDataset shard loader (HuggingFace mirror)
+# ---------------------------------------------------------------------------
+def preprocess_wds_sample(sample: dict, training: bool = True) -> tuple[torch.Tensor, int]:
+    """Convert a WebDataset sample dict ``{jpg: bytes, cls: int}`` into
+    ``(image_tensor, label)`` with the same preprocessing as ``MXFaceDataset``."""
+    img_bytes = sample["jpg"]
+    label = int(sample["cls"])
+
+    buf = np.frombuffer(img_bytes, dtype=np.uint8)
+    img = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError("Failed to decode WebDataset image")
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    if img.shape[0] != _IMG_SIZE or img.shape[1] != _IMG_SIZE:
+        img = cv2.resize(img, (_IMG_SIZE, _IMG_SIZE), interpolation=cv2.INTER_LINEAR)
+
+    if training:
+        if random.random() < 0.2:
+            img = crop_augmentation(img)
+        if random.random() < 0.2:
+            img = low_res_augmentation(img)
+        if random.random() < 0.2:
+            img = photometric_augmentation(img)
+        if random.random() < 0.5:
+            img = img[:, ::-1]
+
+    img = np.ascontiguousarray(img, dtype=np.float32)
+    img = (img - _PIXEL_MEAN) / _PIXEL_STD
+    tensor = torch.from_numpy(img).permute(2, 0, 1).contiguous()
+    return tensor, label
+
+
+def _wds_collate(batch: list[tuple[torch.Tensor, int]]) -> tuple[torch.Tensor, torch.Tensor]:
+    """Standard collate for preprocessed (tensor, label) tuples."""
+    images = torch.stack([item[0] for item in batch])
+    labels = torch.tensor([item[1] for item in batch], dtype=torch.long)
+    return images, labels
+
+
+class _DummySampler:
+    """Minimal sampler that supports ``set_epoch()`` so the training loop
+    doesn't need to change. WebDataset handles its own shard shuffling."""
+
+    def set_epoch(self, epoch: int) -> None:
+        pass
+
+
+class WDSFaceDataset(torch.utils.data.IterableDataset):
+    """Iterable face dataset backed by WebDataset tar shards.
+
+    Reads ``.tar.gz`` shards from ``shard_dir``. For DDP, each rank only
+    reads its assigned shard subset, determined by ``rank`` / ``world_size``.
+
+    Parameters
+    ----------
+    shard_dir : str
+        Directory containing ``glint360k-NNNN.tar.gz`` shards.
+    training : bool
+        Enable augmentations.
+    rank : int
+        Current process rank (0 for single-GPU).
+    world_size : int
+        Total number of processes (1 for single-GPU).
+    """
+
+    def __init__(
+        self,
+        shard_dir: str,
+        training: bool = True,
+        rank: int = 0,
+        world_size: int = 1,
+    ) -> None:
+        super().__init__()
+        self.shard_dir = shard_dir
+        self.training = training
+        self.rank = rank
+        self.world_size = world_size
+
+        import glob
+        all_shards = sorted(glob.glob(os.path.join(shard_dir, "glint360k-*.tar.gz")))
+        if not all_shards:
+            raise FileNotFoundError(
+                f"No glint360k-*.tar.gz shards found in {shard_dir!r}. "
+                "Run scripts/download_glint360k.py first."
+            )
+        # Each rank gets an equal share of shards
+        self.shards = all_shards[rank::world_size]
+        self.num_classes = 360232  # fixed for Glint360K
+        self._epoch = 0
+
+    def set_epoch(self, epoch: int) -> None:
+        self._epoch = epoch
+
+    def __iter__(self):
+        import webdataset as wds
+
+        # Shard-level shuffle (seeded by epoch for reproducibility across ranks)
+        rng = random.Random(self._epoch * 100003 + self.rank)
+        shards = list(self.shards)
+        rng.shuffle(shards)
+
+        # Build the WebDataset pipeline
+        pipeline = wds.WebDataset(shards, shardshuffle=False)
+        pipeline = pipeline.shuffle(5000, rng=random.Random(self._epoch + self.rank))
+        pipeline = pipeline.decode(wds.autodecode.ImageHandler("pil"))
+        pipeline = pipeline.to_tuple("jpg", "cls")
+
+        for img, label in pipeline:
+            # img is a PIL Image at this point
+            img_np = np.array(img.convert("RGB"))
+            label_int = int(label)
+
+            if self.training:
+                if random.random() < 0.2:
+                    img_np = crop_augmentation(img_np)
+                if random.random() < 0.2:
+                    img_np = low_res_augmentation(img_np)
+                if random.random() < 0.2:
+                    img_np = photometric_augmentation(img_np)
+                if random.random() < 0.5:
+                    img_np = img_np[:, ::-1]
+
+            if img_np.shape[0] != _IMG_SIZE or img_np.shape[1] != _IMG_SIZE:
+                img_np = cv2.resize(img_np, (_IMG_SIZE, _IMG_SIZE), interpolation=cv2.INTER_LINEAR)
+
+            img_np = np.ascontiguousarray(img_np, dtype=np.float32)
+            img_np = (img_np - _PIXEL_MEAN) / _PIXEL_STD
+            tensor = torch.from_numpy(img_np).permute(2, 0, 1).contiguous()
+            yield tensor, label_int
+
+
+def build_wds_dataloader(
+    shard_dir: str,
+    batch_size: int,
+    num_workers: int,
+    distributed: bool = True,
+    seed: int = 0,
+) -> tuple[WDSFaceDataset, _DummySampler, DataLoader]:
+    """Construct ``(dataset, sampler, loader)`` for WebDataset shards.
+
+    For DDP, each rank reads a disjoint subset of shards; WebDataset handles
+    intra-shard shuffling. No ``DistributedSampler`` needed — shard assignment
+    IS the data partitioning.
+    """
+    rank = int(os.environ.get("RANK", "0"))
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    if not distributed:
+        rank, world_size = 0, 1
+
+    dataset = WDSFaceDataset(
+        shard_dir=shard_dir,
+        training=True,
+        rank=rank,
+        world_size=world_size,
+    )
+    sampler = _DummySampler()
+
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        pin_memory=True,
+        drop_last=True,
+        collate_fn=_wds_collate,
+    )
+    return dataset, sampler, loader
+
+
+# ---------------------------------------------------------------------------
 # Smoke test
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     import sys
 
     if len(sys.argv) < 2:
-        print("usage: python dataset.py /path/to/glint360k")
+        print("usage: python dataset.py /path/to/glint360k  (RecordIO)")
+        print("       python dataset.py /path/to/glint360k-wds --wds  (WebDataset)")
         raise SystemExit(1)
 
     root = sys.argv[1]
-    ds = MXFaceDataset(root, training=True)
-    print(f"dataset root   : {root}")
-    print(f"num samples    : {len(ds):,}")
-    print(f"num classes    : {ds.num_classes}")
-    img, lbl = ds[0]
-    print(f"sample[0] image: {tuple(img.shape)} dtype={img.dtype} "
-          f"min={img.min():.3f} max={img.max():.3f}")
-    print(f"sample[0] label: {lbl}")
+    if "--wds" in sys.argv:
+        ds = WDSFaceDataset(root, training=True)
+        it = iter(ds)
+        img, lbl = next(it)
+        print(f"dataset root   : {root}")
+        print(f"num classes    : {ds.num_classes}")
+        print(f"num shards     : {len(ds.shards)} (rank 0)")
+        print(f"sample[0] image: {tuple(img.shape)} dtype={img.dtype} "
+              f"min={img.min():.3f} max={img.max():.3f}")
+        print(f"sample[0] label: {lbl}")
+    else:
+        ds = MXFaceDataset(root, training=True)
+        print(f"dataset root   : {root}")
+        print(f"num samples    : {len(ds):,}")
+        print(f"num classes    : {ds.num_classes}")
+        img, lbl = ds[0]
+        print(f"sample[0] image: {tuple(img.shape)} dtype={img.dtype} "
+              f"min={img.min():.3f} max={img.max():.3f}")
+        print(f"sample[0] label: {lbl}")

@@ -21,6 +21,7 @@ scipy = "*"
 tensorboard = "*"
 tqdm = "*"
 huggingface_hub = ">=0.20"
+webdataset = "*"
 
 # =============================================================================
 # GPU feature — compute node (just the CUDA runtime)

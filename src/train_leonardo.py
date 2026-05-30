@@ -41,7 +41,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 # via torchrun with src/ as the script dir.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from dataset import build_dataloader  # noqa: E402
+from dataset import build_dataloader, build_wds_dataloader  # noqa: E402
 from model import FaceEmbedder  # noqa: E402
 
 logger = logging.getLogger("train")
@@ -205,14 +205,29 @@ def main() -> None:
                     args.batch_size, args.batch_size * world_size, num_workers)
         logger.info("amp=%s  grad_scaler=%s", args.amp_dtype, scaler.is_enabled())
 
-    # ---- data ---------------------------------------------------------------
-    dataset, sampler, loader = build_dataloader(
-        root_dir=args.data_root,
-        batch_size=args.batch_size,
-        num_workers=num_workers,
-        distributed=True,
-        seed=args.seed,
-    )
+    # ---- data (auto-detect RecordIO vs WebDataset) --------------------------
+    import glob as _glob
+    _g = _glob
+    if _g.glob(os.path.join(args.data_root, "glint360k-*.tar.gz")):
+        if is_main:
+            logger.info("Detected WebDataset shards (WDS format)")
+        dataset, sampler, loader = build_wds_dataloader(
+            shard_dir=args.data_root,
+            batch_size=args.batch_size,
+            num_workers=num_workers,
+            distributed=True,
+            seed=args.seed,
+        )
+    else:
+        if is_main:
+            logger.info("Detected RecordIO format (train.rec / train.idx)")
+        dataset, sampler, loader = build_dataloader(
+            root_dir=args.data_root,
+            batch_size=args.batch_size,
+            num_workers=num_workers,
+            distributed=True,
+            seed=args.seed,
+        )
 
     num_classes = args.num_classes or dataset.num_classes
     if not num_classes:
@@ -221,7 +236,7 @@ def main() -> None:
             "pass --num-classes explicitly."
         )
     if is_main:
-        logger.info("dataset: %d images, %d classes", len(dataset), num_classes)
+        logger.info("dataset: %d images, %d classes", len(dataset) if hasattr(dataset, '__len__') else 0, num_classes)
 
     # ---- model --------------------------------------------------------------
     torch.manual_seed(args.seed)  # identical init across ranks (DDP broadcasts anyway)

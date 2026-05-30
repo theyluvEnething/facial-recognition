@@ -34,7 +34,7 @@ export PIXI_CACHE_DIR="$CINECA_SCRATCH/.pixi-cache"
 mkdir -p "$PIXI_CACHE_DIR"
 
 PROJECT_DIR="$CINECA_SCRATCH/facial-recognition"
-DATA_ROOT="$CINECA_SCRATCH/datasets/glint360k"
+DATA_ROOT="$CINECA_SCRATCH/datasets/glint360k-wds"
 OUTPUT_DIR="$CINECA_SCRATCH/facial-recognition/checkpoints/run_${SLURM_JOB_ID}"
 mkdir -p "$OUTPUT_DIR"
 
