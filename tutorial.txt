@@ -3,6 +3,9 @@
   IResNet-100 + AdaFace | 1 Node, 4× A100, 480 GB RAM
 ====================================================================
 
+REPO
+  GitHub : https://github.com/theyluvEnething/facial-recognition
+
 ACCOUNT
   Username : a08trc28
   Password : wyadPacVioj7
@@ -22,19 +25,21 @@ ACCOUNT
 
     scp -r "C:\Users\Enething\Programming\Models\Facial Recognition\facial-recognition" a08trc28@login01-ext.leonardo.cineca.it:/scratch/a08trc28/
 
-  Option B: Push to GitHub first, then clone on Leonardo
-  =======================================================
-  1. On your LOCAL machine, create a repo on GitHub (e.g. yourname/facial-recognition),
-     then in PowerShell:
+  Option B: Clone from GitHub on Leonardo
+  =============================================
+  The repo is already pushed to GitHub (skip Option A entirely):
 
-       cd "C:\Users\Enething\Programming\Models\Facial Recognition\facial-recognition"
-       git remote add origin https://github.com/yourname/facial-recognition.git
-       git push -u origin main
+    1. On Leonardo (after login in Phase 2), clone directly into scratch:
 
-  2. Then on Leonardo (after login in Phase 2), clone from scratch:
+         cd /scratch/a08trc28
+         git clone https://github.com/theyluvEnething/facial-recognition.git
 
-       cd /scratch/a08trc28
-       git clone https://github.com/yourname/facial-recognition.git
+    2. If you make changes on Leonardo and want to save them back:
+
+         cd /scratch/a08trc28/facial-recognition
+         git add -A
+         git commit -m "Your message"
+         git push
 
 --------------------------------------------------------------------
   PHASE 2 — LOG IN & INSTALL PIXI
@@ -304,6 +309,7 @@ ACCOUNT
     Home           : /users/a08trc28
 
   On your local machine:
+    Repo           : https://github.com/theyluvEnething/facial-recognition
     Project root   : C:\Users\Enething\Programming\Models\Facial Recognition\facial-recognition
 
 ====================================================================
