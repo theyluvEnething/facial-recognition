@@ -1,16 +1,4 @@
-# =============================================================================
-# Facial Recognition — pixi Project Manifest
-# IResNet-100 + AdaFace | Leonardo Supercomputer
-# =============================================================================
-# Usage:
-#   pixi install                 # Login node — CPU-only deps
-#   CONDA_OVERRIDE_CUDA=12.0 pixi install -e gpu  # Login node — GPU deps (mocked)
-#   pixi run -e gpu train        # Compute node — 4-GPU training
-#   pixi run export              # ONNX export (CPU is fine)
-#   pixi run infer               # Inference
-# =============================================================================
-
-[workspace]
+[project]
 name = "facial-recognition"
 version = "0.1.0"
 description = "IResNet-100 + AdaFace face embedding model (Leonardo / CINECA)"
@@ -18,7 +6,7 @@ channels = ["conda-forge", "pytorch"]
 platforms = ["linux-64"]
 
 # =============================================================================
-# Base dependencies (login node — CPU only, always installable)
+# Base dependencies — login node (CPU-only, always installs without CUDA)
 # =============================================================================
 [dependencies]
 python = "3.12.*"
@@ -32,33 +20,25 @@ tensorboard = "*"
 tqdm = "*"
 
 # =============================================================================
-# GPU feature (compute nodes — CUDA-accelerated PyTorch)
+# GPU feature — compute node (CUDA-accelerated PyTorch)
 # =============================================================================
 [feature.gpu.system-requirements]
 cuda = "12"
 
 [feature.gpu.dependencies]
-pytorch = { version = ">=2.5,<3", channel = "pytorch" }
+pytorch = { version = ">=2.5", channel = "pytorch" }
 torchvision = { version = "*", channel = "pytorch" }
 pytorch-cuda = { version = ">=2.5", channel = "pytorch" }
-
-# =============================================================================
-# Dev feature
-# =============================================================================
-[feature.dev.dependencies]
-ruff = "*"
-ipython = "*"
-pytest = "*"
 
 # =============================================================================
 # Environments
 # =============================================================================
 [environments]
-default = ["dev"]                             # Login node / local dev
-gpu = ["dev", "gpu"]                          # Compute node — 4× A100
+default = []                # Login node / local dev
+gpu = ["gpu"]               # Compute node — 4× A100
 
 # =============================================================================
-# Tasks
+# Tasks — use with: pixi run -e <env> <task>
 # =============================================================================
 [tasks]
 train = { cmd = "torchrun --standalone --nnodes=1 --nproc_per_node=4 src/train_leonardo.py" }
