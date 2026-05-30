@@ -1,0 +1,29 @@
+name: Push model to Hugging Face Hub
+
+on:
+  release:
+    types: [published]          # trigger on git tag release
+
+jobs:
+  push-to-hub:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pixi
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: latest
+          cache: true
+
+      - name: Download model from release assets
+        run: |
+          gh release download ${{ github.event.release.tag_name }} \
+            --pattern "*.onnx" --dir checkpoints/
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push to HF Hub
+        run: pixi run python scripts/push_to_hf_hub.py
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}

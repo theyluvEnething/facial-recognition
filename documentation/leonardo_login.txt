@@ -1,0 +1,95 @@
+====================================================================
+  ZERO ONE HACK_01 — Leonardo (CINECA) Supercomputer Login Info
+====================================================================
+
+ACCOUNT CREDENTIALS
+-------------------
+  Username: a08trc28
+  Password: wyadPacVioj7
+
+SSH LOGIN
+---------
+  Host:      login01-ext.leonardo.cineca.it
+  Alternative login nodes:
+             login02-ext.leonardo.cineca.it
+             login05-ext.leonardo.cineca.it
+             login07-ext.leonardo.cineca.it
+
+  Command:
+    ssh a08trc28@login01-ext.leonardo.cineca.it
+
+  NOTE: 2FA is NOT used for this hackathon. Connect directly.
+
+
+
+FILE SYSTEMS
+------------
+  Location            Path                   Size     Notes
+  ─────────           ─────────────────────  ───────  ──────────────────────
+  Home ($HOME)        /users/a08trc28        50 GB    Permanent, backed up
+  Scratch ($SCRATCH)  /scratch/a08trc28      No quota Auto-deleted after 40 days
+  Public ($PUBLIC)    /public/a08trc28       50 GB    Share files between users
+
+  IMPORTANT:
+    - $WORK and $FAST are NOT available. Use $SCRATCH for all project files,
+      data, and training outputs.
+    - $CINECA_SCRATCH auto-purges after 40 days — don't store permanent things.
+    - Use $HOME only for config, SSH keys, and the pixi binary.
+
+
+
+RESOURCE ALLOCATION (SLURM — boost_usr_prod partition)
+------------------------------------------------------
+  Reservation:  s_tra_ncc
+  Max GPUs:     4 per node
+  Default:      1 GPU  → 120 GB RAM,  8 CPUs
+                 2 GPUs → 240 GB RAM, 16 CPUs
+                 4 GPUs → 480 GB RAM, 32 CPUs
+  Max runtime:  up to 24 hours
+
+
+
+INTERNET ON COMPUTE NODES
+--------------------------
+  Compute nodes have NO DIRECT internet access.
+
+  For low-bandwidth traffic (API calls, small downloads), use the proxy:
+    export HTTP_PROXY=http://proxyuser:5dd1d2bd00@10.99.0.1:38425
+    export HTTPS_PROXY=http://proxyuser:5dd1d2bd00@10.99.0.1:38425
+
+  IMPORTANT: Proxy restarts every 10 minutes of CPU time. TCP connections
+  will drop. Do NOT use for large downloads. Download everything on the
+  login nodes before submitting jobs.
+
+
+
+USEFUL SLURM COMMANDS
+---------------------
+  sbatch job.sh              Submit a batch job
+  squeue --me                Check your jobs
+  scancel <JOBID>            Cancel a job
+  sinfo                      Check partition/node status
+
+INTERACTIVE SESSION (for debugging):
+  srun --partition=boost_usr_prod --reservation=s_tra_ncc \
+    --nodes=1 --ntasks=1 --cpus-per-task=8 --gpus-per-task=1 \
+    --mem=120GB --time=02:00:00 --pty /bin/bash
+
+
+
+QUICK-START CHECKLIST
+---------------------
+  [ ] SSH into login node:  ssh a08trc28@login01-ext.leonardo.cineca.it
+  [ ] Download models/datasets on LOGIN node (has internet)
+  [ ] Submit SLURM jobs via: sbatch your_job.slurm
+  [ ] Check job status:      squeue --me
+  [ ] Results in $SCRATCH (/scratch/a08trc28)
+
+
+
+CACHE SETUP FOR PIXI
+--------------------
+  Export this after logging in to avoid filling your home directory:
+    export PIXI_CACHE_DIR=$CINECA_SCRATCH/.pixi-cache
+
+====================================================================
