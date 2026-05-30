@@ -1,0 +1,40 @@
+[project]
+name = "facial-recognition"
+version = "0.1.0"
+description = "IResNet-100 + AdaFace face embedding model (Leonardo / CINECA)"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+# Asserts the runtime target has CUDA 12. This lets `pixi install` solve for the
+# CUDA-enabled PyTorch build on the GPU-less login node (where the __cuda virtual
+# package would otherwise be absent), so you can install on login and run on a
+# compute node. See documentation/dataset_acquisition.md for the workflow.
+[system-requirements]
+cuda = "12"
+
+[dependencies]
+python = "3.11.*"
+pytorch-gpu = ">=2.3,<2.8"
+torchvision = "*"
+numpy = ">=1.24"
+opencv = ">=4.8"
+onnx = "*"
+onnxruntime = "*"
+scipy = "*"
+tensorboard = "*"
+tqdm = "*"
+
+[tasks]
+# Single-node, 4-GPU training. --standalone makes torchrun pick a free rendezvous
+# port itself (do NOT also set MASTER_ADDR/MASTER_PORT).
+train = "torchrun --standalone --nnodes=1 --nproc_per_node=4 src/train_leonardo.py"
+export = "python src/export.py"
+infer = "python src/inference.py"
+
+[feature.dev.dependencies]
+ruff = "*"
+ipython = "*"
+pytest = "*"
+
+[environments]
+default = ["dev"]

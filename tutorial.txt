@@ -1,0 +1,348 @@
+====================================================================
+  FACIAL RECOGNITION — Leonardo End-to-End Tutorial
+  IResNet-100 + AdaFace | 1 Node, 4× A100, 480 GB RAM
+====================================================================
+
+ACCOUNT
+  Username : a08trc28
+  Password : wyadPacVioj7
+  SSH Host : login01-ext.leonardo.cineca.it
+  Scratch  : /scratch/a08trc28  ($SCRATCH)
+  Home     : /users/a08trc28    ($HOME, 50 GB — config only)
+
+--------------------------------------------------------------------
+  PHASE 1 — UPLOAD THE PROJECT TO LEONARDO
+--------------------------------------------------------------------
+
+  You have two options. Pick ONE.
+
+  Option A: SCP the whole folder (simplest, no GitHub needed)
+  =============================================================
+  From your LOCAL Windows PowerShell, run:
+
+    scp -r "C:\Users\Enething\Programming\Models\Facial Recognition\facial-recognition" a08trc28@login01-ext.leonardo.cineca.it:/scratch/a08trc28/
+
+  Option B: Push to GitHub first, then clone on Leonardo
+  =======================================================
+  1. On your LOCAL machine, create a repo on GitHub (e.g. yourname/facial-recognition),
+     then in PowerShell:
+
+       cd "C:\Users\Enething\Programming\Models\Facial Recognition\facial-recognition"
+       git remote add origin https://github.com/yourname/facial-recognition.git
+       git push -u origin main
+
+  2. Then on Leonardo (after login in Phase 2), clone from scratch:
+
+       cd /scratch/a08trc28
+       git clone https://github.com/yourname/facial-recognition.git
+
+--------------------------------------------------------------------
+  PHASE 2 — LOG IN & INSTALL PIXI
+--------------------------------------------------------------------
+
+  Step 1 — SSH into Leonardo
+  ==========================
+    ssh a08trc28@login01-ext.leonardo.cineca.it
+    # Password: wyadPacVioj7
+
+  Step 2 — Install pixi (first time only)
+  =========================================
+    curl -fsSL https://pixi.sh/install.sh | bash
+    source ~/.bashrc
+
+  Step 3 — Point pixi cache to scratch (first time only)
+  =======================================================
+    echo 'export PIXI_CACHE_DIR=$CINECA_SCRATCH/.pixi-cache' >> ~/.bashrc
+    source ~/.bashrc
+
+  Step 4 — Verify project is in place
+  =====================================
+    ls /scratch/a08trc28/facial-recognition/
+    # You should see: pixi.toml  src/  scripts/  dataset_acquisition.md  tutorial.txt
+
+--------------------------------------------------------------------
+  PHASE 3 — INSTALL DEPENDENCIES (ON LOGIN NODE)
+--------------------------------------------------------------------
+
+  The login node HAS internet. pixi will download all packages here.
+
+  Step 5 — Navigate to the project
+  ==================================
+    cd /scratch/a08trc28/facial-recognition
+
+  Step 6 — Install everything with pixi
+  =======================================
+    pixi install
+
+    # This pulls PyTorch (CUDA 12), torchvision, numpy, opencv, onnx, onnxruntime,
+    # scipy, tensorboard, tqdm — all from conda-forge.
+    # Takes ~5-10 minutes.
+
+  Step 7 — Quick smoke test (optional but recommended)
+  ======================================================
+    pixi run python src/model.py
+    # Expected: "iresnet100 parameters : 65,156,160"
+    #           "embedding shape       : (2, 512)"
+
+--------------------------------------------------------------------
+  PHASE 4 — DOWNLOAD THE GLINT360K DATASET
+--------------------------------------------------------------------
+
+  LOGIN NODES KILL PROCESSES AFTER 10 MINUTES OF CPU TIME.
+  For a 100 GB download + extract, you must use an interactive session.
+
+  Step 8 — Request an interactive session (has internet, no CPU limit)
+  ======================================================================
+    srun --partition=lrd_all_serial --time 04:00:00 --gres=tmpfs:100G --mem=16G --pty bash
+
+    # Wait for "bash-4.4$" or similar prompt — you're now on a worker node.
+
+  Step 9 — Create the dataset directory
+  =======================================
+    mkdir -p /scratch/a08trc28/datasets/glint360k
+    cd /scratch/a08trc28/datasets/glint360k
+
+  Step 10 — Download the Glint360K archive parts
+  ================================================
+  The dataset is distributed as 7 multi-part files via Academic Torrents:
+  https://academictorrents.com/details/e5f46ee502b9e76da8cc3a0e4f7c17e4000c7b1e
+
+  On the interactive node, download all 7 parts (glint360k_00 through glint360k_06).
+  Use wget from a mirror you control, or aria2c if available.
+
+  If you can use the proxy for a download tool:
+    export HTTP_PROXY=http://proxyuser:5dd1d2bd00@10.99.0.1:38425
+    export HTTPS_PROXY=http://proxyuser:5dd1d2bd00@10.99.0.1:38425
+
+  BUT the proxy drops connections after 10 min, so large downloads may fail.
+  The interactive session is the reliable path — ask your hackathon mentor for the
+  fastest way to pull Glint360K onto the session.
+
+  Step 11 — Extract the archive
+  ===============================
+    cat glint360k_* | tar -xzvf -
+    # The trailing '-' IS required.
+
+  Step 12 — Verify MD5 checksums
+  ================================
+    md5sum -c <<'EOF'
+    5d9cd9f262ec87a5ca2eac5e703f7cdf  train.idx
+    8483be5af6f9906e19f85dee49132f8e  train.rec
+    EOF
+    # Both should say "OK".
+
+  Step 13 — Clean up archive parts
+  ==================================
+    rm -f glint360k_0*
+
+  Step 14 — Set Lustre striping on the big file
+  ===============================================
+    lfs setstripe -c 4 train.rec
+
+  Step 15 — Verify the dataset (quick sanity check)
+  ===================================================
+    cd /scratch/a08trc28/facial-recognition
+    pixi run python src/dataset.py /scratch/a08trc28/datasets/glint360k
+
+    # Expected: "num samples    : 17,091,657"
+    #           "num classes    : 360232"
+    #           "sample[0] image: (3, 112, 112) dtype=torch.float32 min=-1.000 max=..."
+
+  Step 16 — Exit the interactive session
+  ========================================
+    exit
+    # You are now back on the login node.
+
+--------------------------------------------------------------------
+  PHASE 5 — START TRAINING
+--------------------------------------------------------------------
+
+  Step 17 — Submit the SLURM job
+  ================================
+    cd /scratch/a08trc28/facial-recognition
+    sbatch scripts/job_submit.sh
+
+    # You'll get back: "Submitted batch job <JOBID>"
+
+  Step 18 — Check job status
+  ============================
+    squeue --me
+    # Look for "R" (RUNNING) or "PD" (PENDING) in the ST column.
+
+  Step 19 — Watch live output (optional)
+  ========================================
+    tail -f facerec-adaface-<JOBID>.out
+    # You'll see loss, LR, img/s printed every 50 steps.
+
+  Step 20 — Check GPU utilization (optional, while running)
+  ==========================================================
+    # Get a shell on the compute node while the job is running:
+    srun --overlap --pty --jobid=<JOBID> bash
+    nvidia-smi
+    exit
+
+--------------------------------------------------------------------
+  PHASE 6 — WHAT HAPPENS DURING TRAINING
+--------------------------------------------------------------------
+
+  The training script (src/train_leonardo.py) does this automatically:
+
+   * Resumes from the last checkpoint if the job was killed (24h wall-clock
+     limit). Simply re-submit the job and it picks up where it left off.
+   * Saves a checkpoint every 2000 steps to latest.pth (atomic, no corruption).
+   * Saves an epoch checkpoint to epoch_001.pth, epoch_002.pth, etc.
+   * After all epochs complete, saves backbone_final.pth — the file you need
+     for export and deployment.
+
+  Checkpoint directory:
+    /scratch/a08trc28/facial-recognition/checkpoints/run_<JOBID>/
+
+--------------------------------------------------------------------
+  PHASE 7 — MONITOR, CANCEL, OR RE-SUBMIT
+--------------------------------------------------------------------
+
+  Cancel training:
+    scancel <JOBID>
+
+  Cancel ALL your jobs:
+    scancel -u a08trc28
+
+  Re-submit after timeout (auto-resumes):
+    sbatch scripts/job_submit.sh
+
+  Check disk usage:
+    du -sh /scratch/a08trc28/facial-recognition/checkpoints/*
+    du -sh /scratch/a08trc28/*
+
+--------------------------------------------------------------------
+  PHASE 8 — DOWNLOAD THE TRAINED MODEL
+--------------------------------------------------------------------
+
+  After training finishes, pull the backbone weights to your LOCAL machine.
+
+  On your LOCAL Windows PowerShell, run:
+
+    # Download the final backbone weights
+    scp a08trc28@login01-ext.leonardo.cineca.it:/scratch/a08trc28/facial-recognition/checkpoints/run_<JOBID>/backbone_final.pth .
+
+    # Or download the whole checkpoint directory
+    scp -r a08trc28@login01-ext.leonardo.cineca.it:/scratch/a08trc28/facial-recognition/checkpoints/run_<JOBID> .
+
+  Replace <JOBID> with the actual numeric job ID.
+
+--------------------------------------------------------------------
+  PHASE 9 — EXPORT TO ONNX (ON LEONARDO, OR LOCALLY)
+--------------------------------------------------------------------
+
+  On Leonardo (login node is fine, no GPU needed):
+    cd /scratch/a08trc28/facial-recognition
+    pixi run python src/export.py \
+      --checkpoint checkpoints/run_<JOBID>/backbone_final.pth \
+      --onnx-out model.onnx
+
+  Or on your LOCAL machine (if you have onnx/onnxruntime installed):
+    python src/export.py \
+      --checkpoint backbone_final.pth \
+      --onnx-out model.onnx
+
+  The ONNX file can then be copied anywhere.
+
+--------------------------------------------------------------------
+  PHASE 10 — RUN LOCAL INFERENCE
+--------------------------------------------------------------------
+
+  On your LOCAL Windows machine (RTX 5070), once you have model.onnx:
+
+    # Install the inference dependencies
+    pip install opencv-python onnxruntime  # onnxruntime-gpu for CUDA
+
+    # Run inference on an aligned 112x112 face image
+    python src/inference.py --model model.onnx --image face.jpg --l2-normalize
+
+    # Save the embedding to a .npy file
+    python src/inference.py --model model.onnx --image face.jpg --l2-normalize --save-npy embedding.npy
+
+--------------------------------------------------------------------
+  PHASE 11 — BUILD TENSORRT ENGINE (OPTIONAL, LOCAL ONLY)
+--------------------------------------------------------------------
+
+  TensorRT engines are GPU-specific. Build on your RTX 5070, NOT on Leonardo's A100s.
+
+  On your LOCAL machine:
+    # First export ONNX, then convert to TensorRT engine
+    python src/export.py \
+      --checkpoint backbone_final.pth \
+      --onnx-out model.onnx \
+      --build-trt \
+      --engine-out model.engine
+
+  Then run inference with the engine:
+    python src/inference.py --model model.engine --image face.jpg --l2-normalize
+
+--------------------------------------------------------------------
+  PHASE 12 — LOG OUT
+--------------------------------------------------------------------
+
+  When you're done on Leonardo:
+    exit
+    # That's it. Your files persist on $SCRATCH for 40 days.
+
+  Later, to resume working:
+    ssh a08trc28@login01-ext.leonardo.cineca.it
+    cd /scratch/a08trc28/facial-recognition
+    # Everything is still there.
+
+====================================================================
+  QUICK REFERENCE — PATHS
+====================================================================
+
+  On Leonardo:
+    Project root   : /scratch/a08trc28/facial-recognition
+    Dataset        : /scratch/a08trc28/datasets/glint360k
+    Checkpoints    : /scratch/a08trc28/facial-recognition/checkpoints/run_<JOBID>
+    Pixi cache     : /scratch/a08trc28/.pixi-cache
+    Home           : /users/a08trc28
+
+  On your local machine:
+    Project root   : C:\Users\Enething\Programming\Models\Facial Recognition\facial-recognition
+
+====================================================================
+  QUICK REFERENCE — COMMANDS
+====================================================================
+
+  Submit training        sbatch scripts/job_submit.sh
+  Check status           squeue --me
+  Watch output           tail -f facerec-adaface-<JOBID>.out
+  Cancel job             scancel <JOBID>
+  Interactive GPU shell  srun --partition=boost_usr_prod --reservation=s_tra_ncc --nodes=1 --ntasks=1 --gpus-per-task=1 --mem=120GB --cpus-per-task=8 --time=02:00:00 --pty /bin/bash
+  Interactive CPU shell  srun --partition=lrd_all_serial --time 04:00:00 --gres=tmpfs:100G --mem=16G --pty bash
+  Run in pixi env        pixi run python src/script.py
+  Check disk use         du -sh /scratch/a08trc28/*
+
+====================================================================
+  TYPICAL HACKATHON SESSION
+====================================================================
+
+    # 1. Login
+    ssh a08trc28@login01-ext.leonardo.cineca.it
+
+    # 2. Go to project
+    cd /scratch/a08trc28/facial-recognition
+
+    # 3. Submit job
+    sbatch scripts/job_submit.sh
+
+    # 4. Check it's running
+    squeue --me
+
+    # 5. Watch logs
+    tail -f facerec-adaface-*.out
+
+    # 6. When done, pull model
+    #    (from your local machine)
+    scp a08trc28@login01-ext.leonardo.cineca.it:/scratch/a08trc28/facial-recognition/checkpoints/run_XXXX/backbone_final.pth .
+
+    # 7. Logout
+    exit
+
+====================================================================
