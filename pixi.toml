@@ -6,11 +6,13 @@ channels = ["conda-forge", "pytorch"]
 platforms = ["linux-64"]
 
 # =============================================================================
-# Base dependencies — login node (CPU-only)
+# Base dependencies — login node (CPU PyTorch, no CUDA needed)
 # =============================================================================
 [dependencies]
 python = "3.12.*"
 pip = "*"
+pytorch = ">=2.5"
+torchvision = ">=0.20"
 numpy = ">=1.24"
 opencv = ">=4.8"
 onnx = "*"
@@ -21,15 +23,13 @@ tqdm = "*"
 huggingface_hub = ">=0.20"
 
 # =============================================================================
-# GPU feature — compute node (CUDA-accelerated PyTorch)
+# GPU feature — compute node (just the CUDA runtime)
 # =============================================================================
 [feature.gpu.system-requirements]
-cuda = "12.4"
+cuda = "12"
 
 [feature.gpu.dependencies]
-pytorch = { version = ">=2.5,<3", channel = "pytorch" }
-torchvision = { version = "*", channel = "pytorch" }
-pytorch-cuda = { version = "==12.4", channel = "pytorch" }
+pytorch-cuda = { version = ">=2.5", channel = "pytorch" }
 
 # =============================================================================
 # Environments
