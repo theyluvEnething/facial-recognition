@@ -1,32 +1,25 @@
 #!/bin/bash
 #SBATCH --job-name=facerec-adaface
 #SBATCH --partition=boost_usr_prod
-#SBATCH --reservation=s_tra_ncc
-
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-task=4
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=480GB
-#SBATCH --time=24:00:00
+#SBATCH --time=05:00:00
 #SBATCH --output=%x-%j.out
 #SBATCH --error=%x-%j.err
 
 # ===========================================================================
 # Train IResNet-100 + AdaFace on Leonardo (1 node, 4× A100, NVLink).
-#
-# If the account is expired, try one of the others listed by:
-#   sacctmgr list associations user=$USER
-#
-# The hackathon reservation (s_tra_ncc) limits each team to 1 node.
-# If 24h doesn't schedule, reduce --time or drop the reservation.
+# Main queue — no reservation. 5h time limit.
 #
 #   sbatch scripts/job_submit.sh
 # ===========================================================================
 
 set -euo pipefail
 
-# --- clean environment so nothing from the login shell leaks in -----------
+# --- clean environment -------------------------------------------------------
 unset PYTHONPATH LD_PRELOAD
 unset RANK WORLD_SIZE LOCAL_RANK MASTER_ADDR MASTER_PORT
 unset CUDA_VISIBLE_DEVICES NCCL_SOCKET_IFNAME
@@ -42,7 +35,7 @@ mkdir -p "$OUTPUT_DIR"
 
 cd "$PROJECT_DIR"
 
-# --- proxy for low-bandwidth traffic (compute nodes have no internet) -------
+# --- proxy for low-bandwidth traffic ----------------------------------------
 export HTTP_PROXY="http://proxyuser:5dd1d2bd00@10.99.0.1:38425"
 export HTTPS_PROXY="http://proxyuser:5dd1d2bd00@10.99.0.1:38425"
 export http_proxy="$HTTP_PROXY"
@@ -57,7 +50,6 @@ export TRANSFORMERS_OFFLINE=1
 
 echo "================================================================"
 echo "Job ID      : ${SLURM_JOB_ID}"
-echo "Account     : ${SLURM_ACCOUNT}"
 echo "Host        : $(hostname)"
 echo "Node list   : ${SLURM_JOB_NODELIST}"
 echo "Data root   : ${DATA_ROOT}"
@@ -67,12 +59,12 @@ echo "================================================================"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
 echo "================================================================"
 
-# --- install GPU environment on the compute node ----------------------------
+# --- install GPU environment ------------------------------------------------
 echo "[pixi] Installing GPU environment..."
 CONDA_OVERRIDE_CUDA=12.0 pixi install -e gpu
 echo "[pixi] Done."
 
-# --- launch training (single-node: torchrun --standalone) -------------------
+# --- launch training ---------------------------------------------------------
 echo "[train] Starting..."
 pixi run -e gpu train \
     --data-root "$DATA_ROOT" \
