@@ -2,7 +2,7 @@
 #SBATCH --job-name=facerec-adaface
 #SBATCH --partition=boost_usr_prod
 #SBATCH --reservation=s_tra_ncc
-#SBATCH --account=euhpc_d30_0
+
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-task=4
