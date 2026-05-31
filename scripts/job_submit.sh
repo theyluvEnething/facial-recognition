@@ -2,22 +2,24 @@
 #SBATCH --job-name=facerec-adaface
 #SBATCH --partition=boost_usr_prod
 #SBATCH --reservation=s_tra_ncc
-#SBATCH --nodes=4
+#SBATCH --account=tra26_min_0
+#SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-task=4
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=480GB
-#SBATCH --time=06:00:00
+#SBATCH --time=24:00:00
 #SBATCH --output=%x-%j.out
 #SBATCH --error=%x-%j.err
 
 # ===========================================================================
-# Train IResNet-100 + AdaFace on Leonardo (4 nodes, 16× A100, InfiniBand).
+# Train IResNet-100 + AdaFace on Leonardo (1 node, 4× A100, NVLink).
 #
-# One SLURM task per node owns all 4 local GPUs; torchrun spawns 4 worker
-# processes per node (16 total). Nodes coordinate via c10d rendezvous.
-# Effective batch = 128 × 16 = 2048 — adjust --lr accordingly (linear scaling
-# from the 512-batch baseline: lr = 0.1 × 2048/512 = 0.4).
+# If the account is expired, try one of the others listed by:
+#   sacctmgr list associations user=$USER
+#
+# The hackathon reservation (s_tra_ncc) limits each team to 1 node.
+# If 24h doesn't schedule, reduce --time or drop the reservation.
 #
 #   sbatch scripts/job_submit.sh
 # ===========================================================================
@@ -55,6 +57,7 @@ export TRANSFORMERS_OFFLINE=1
 
 echo "================================================================"
 echo "Job ID      : ${SLURM_JOB_ID}"
+echo "Account     : ${SLURM_ACCOUNT}"
 echo "Host        : $(hostname)"
 echo "Node list   : ${SLURM_JOB_NODELIST}"
 echo "Data root   : ${DATA_ROOT}"
@@ -69,27 +72,14 @@ echo "[pixi] Installing GPU environment..."
 CONDA_OVERRIDE_CUDA=12.0 pixi install -e gpu
 echo "[pixi] Done."
 
-# --- multi-node rendezvous ---------------------------------------------------
-MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
-MASTER_PORT=$(( 29400 + SLURM_JOB_ID % 1000 ))  # avoid port collisions
-
-echo "[torchrun] MASTER_ADDR=$MASTER_ADDR  MASTER_PORT=$MASTER_PORT"
-echo "[torchrun] nnodes=$SLURM_NNODES  nproc_per_node=4  world_size=$(( SLURM_NNODES * 4 ))"
-
-# --- launch training ---------------------------------------------------------
+# --- launch training (single-node: torchrun --standalone) -------------------
 echo "[train] Starting..."
-pixi run -e gpu python -m torch.distributed.run \
-    --nnodes "$SLURM_NNODES" \
-    --nproc_per_node 4 \
-    --rdzv_id "$SLURM_JOB_ID" \
-    --rdzv_backend c10d \
-    --rdzv_endpoint "${MASTER_ADDR}:${MASTER_PORT}" \
-    src/train_leonardo.py \
+pixi run -e gpu train \
     --data-root "$DATA_ROOT" \
     --output-dir "$OUTPUT_DIR" \
     --batch-size 128 \
     --epochs 20 \
-    --lr 0.4 \
+    --lr 0.1 \
     --warmup-epochs 1 \
     --amp-dtype bf16 \
     --num-workers -1

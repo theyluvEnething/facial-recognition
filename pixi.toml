@@ -43,6 +43,6 @@ gpu = ["gpu"]               # Compute node — 4× A100
 # Tasks — use with: pixi run -e <env> <task>
 # =============================================================================
 [tasks]
-train = { cmd = "torchrun --nproc_per_node=4 src/train_leonardo.py" }
+train = { cmd = "torchrun --standalone --nnodes=1 --nproc_per_node=4 src/train_leonardo.py" }
 export = "python src/export.py"
 infer = "python src/inference.py"
